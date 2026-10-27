@@ -1,33 +1,67 @@
-name: Build APK
+name: Build Android APK
+
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Extract project zip
+      - name: Extract project ZIP
         run: |
-          ZIP=$(ls *.zip | head -n 1)
-          echo "Using $ZIP"
-          mkdir -p src && unzip -q "$ZIP" -d src
-          PROJ=$(dirname "$(find src -name settings.gradle.kts | head -n 1)")
-          echo "PROJ=$PROJ" >> "$GITHUB_ENV"
+          if [ -f vscode-mobile-project.zip ]; then
+            unzip -o vscode-mobile-project.zip
+            echo "Project ZIP extracted"
+          fi
 
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: 17 }
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
-      - uses: gradle/actions/setup-gradle@v4
-        with: { gradle-version: 8.7 }
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: |
+          npm install @capacitor/core @capacitor/android @capacitor/filesystem @capacitor/share @capacitor/screen-orientation \
+            monaco-editor@0.52.2 @xterm/xterm @xterm/addon-fit \
+            isomorphic-git @isomorphic-git/lightning-fs buffer fflate \
+            @fontsource/inter @fontsource/jetbrains-mono
+          npm install -D @capacitor/cli vite
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Add Android platform
+        run: |
+          if [ ! -d android ]; then npx cap add android; fi
+
+      - name: Sync Capacitor
+        run: npx cap sync android
 
       - name: Build debug APK
-        working-directory: ${{ env.PROJ }}
-        run: gradle assembleDebug --stacktrace
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
-          name: FreeVideoEditor-debug-apk
-          path: ${{ env.PROJ }}/app/build/outputs/apk/debug/*.apk
+          name: vscode-mobile-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
